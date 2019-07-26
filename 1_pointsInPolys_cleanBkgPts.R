@@ -21,26 +21,26 @@ library(dplyr)
 setwd(loc_model)
 
 # set up folder system for inputs
-dir.create(paste0(model_species,"/inputs/presence"), recursive = T, showWarnings = F)
-dir.create(paste0(model_species,"/inputs/model_input"), showWarnings = F)
+dir.create(paste0(model_species,"/inputs/presence"), recursive = TRUE, showWarnings = FALSE)
+dir.create(paste0(model_species,"/inputs/model_input"), showWarnings = FALSE)
 
 # setwd(paste0(loc_model,"/",model_species,"/inputs/presence"))
 # changing to this WD temporarily allows for presence file to be either in presence folder or specified with full path name
 
 # load data, QC ----
-presPolys <- st_zm(st_read(nm_presFile, quiet = T))
+presPolys <- st_zm(st_read(nm_presFile, quiet = TRUE))
 
 #check for proper column names. If no error from next code block, then good to go
 #presPolys$RA <- presPolys$SFRACalc
 shpColNms <- names(presPolys)
-desiredCols <- c("UID", "GROUP_ID", "SPECIES_CD", "RA", "OBSDATE")
+desiredCols <- c("UID", "GROUP_ID", "SPECIES_CD", "RA", "OBSDATE", "HUC10")
 if("FALSE" %in% c(desiredCols %in% shpColNms)) {
 	  stop(paste0("Column(s) are missing or incorrectly named: ", paste(desiredCols[!desiredCols %in% shpColNms], collapse = ", ")))
   } else {
     print("Required columns are present")
   }
 
-if(any(is.na(presPolys[,c("UID", "GROUP_ID", "SPECIES_CD", "RA")]))) {
+if(any(is.na(presPolys[,c("UID", "GROUP_ID", "SPECIES_CD", "RA", "HUC10")]))) {
   stop("The columns 'UID','GROUP_ID','SPECIES_CD', and 'RA' (SFRACalc) cannot have NA values.")
 }
 
@@ -98,7 +98,6 @@ shp_expl <- cbind(shp_expl,
 names(shp_expl$geometry) <- NULL # temp fix until sf patches error
 
 #write out the exploded polygon set
-
 nm.PyFile <- paste(loc_model, model_species,"inputs/presence",paste0(baseName, "_expl.shp"), sep = "/")
 st_write(shp_expl, nm.PyFile, driver="ESRI Shapefile", delete_layer = TRUE)
 
@@ -157,17 +156,7 @@ if(nrow(polysWithNoPoints) > 0){
 rndid <- with(ranPts.joined, ave(expl_id, stratum, FUN=function(x) {sample.int(length(x))}))
 ranPts.joined2 <- ranPts.joined[rndid <= ranPts.joined$finalSampNum,]
 
-# get actual finalSampNum
-#ranPts.joined2 <- ranPts.joined[0,]
-# #### this is slow! ####
-# for (ex in 1:length(shp_expl$geometry)) {
-#   s1 <- shp_expl[ex,]
-#   samps <- row.names(ranPts.joined[ranPts.joined$expl_id==s1$expl_id,])
-#   if (length(samps) > s1$finalSampNum) samps <- sample(samps, size = s1$finalSampNum) # samples to remove
-#   ranPts.joined2 <- rbind(ranPts.joined2, ranPts.joined[samps,])
-# }
 ranPts.joined <- ranPts.joined2
-#rm(ex, s1, samps, ranPts.joined2)
 rm(rndid, ranPts.joined2)
 
 #check for cases where sample smaller than requested

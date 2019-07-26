@@ -16,21 +16,21 @@ library(here)
 
 loc_scripts <- here()
 
-### get a correct crs, to apply to get correct projections
-x <- st_read(paste0(loc_scripts,"/_data/other_spatial/feature/US_States.shp"))
-crs_aea <- st_crs(x)
+# get the HUC10 layer, keep the single column we want
+# get and store a correct crs, to apply to get correct projections
+huc10 <- st_read(paste0(loc_scripts,"/_data/other_spatial/feature/HUC10.shp"), stringsAsFactors = FALSE)
+huc10 <- huc10[,"HUC10"]
+crs_aea <- st_crs(huc10)
 
 # observation data
 path <- paste0(loc_scripts,"/_data/occurrence")
 setwd(path)
 
-cutecode <- "dichhirs"
-
+cutecode <- "glypmuhl"
 
 # initialize in case repeatedly running
 havePolyData <- FALSE
 havePointData <- FALSE
-
 
 # check for poly data
 eo_name <- paste0(cutecode, ".shp")
@@ -115,9 +115,13 @@ if(havePointData){
     filesToMove <- list.files(pattern = cutecode)
     file.rename(from = filesToMove, to = paste0("pre-processed/",filesToMove))
     
+    # intersect with HUC data
+    print("getting huc10 info")
+    joinedHuc <- st_join(eo_dat_all, huc10, left = TRUE, largest = TRUE)
+    
     # write out the merged, all-poly shapefile
     fullnm <- paste0(cutecode,".shp")
-    st_write(eo_dat_all, fullnm)
+    st_write(joinedHuc, fullnm)
     
   } else {
     ## have point data only
@@ -125,14 +129,27 @@ if(havePointData){
     filesToMove <- list.files(pattern = cutecode)
     file.rename(from = filesToMove, to = paste0("pre-processed/",filesToMove))
     
+    # intersect with HUC data
+    print("getting huc10 info")
+    joinedHuc <- st_join(eos_grp, huc10, left = TRUE, largest = TRUE)
+    
     # write out the merged, all-poly shapefile
     fullnm <- paste0(cutecode,".shp")
-    st_write(eos_grp, fullnm)
+    st_write(joinedHuc, fullnm)
   }
 } else {
   ## have poly data only 
-  # don't need to do anything!
-  print("only poly data")
+  # move the existing (poly) files to the pre-processed folder
+  filesToMove <- list.files(pattern = cutecode)
+  file.rename(from = filesToMove, to = paste0("pre-processed/",filesToMove))
+  
+  print("getting huc10 info")
+  joinedHuc <- st_join(eo_dat, huc10, left = TRUE, largest = TRUE)
+  # write it out
+  ## shapefile writing can cause erroneous warnings, 
+  ## see: https://github.com/HeritageNetwork/Regional_SDM/issues/69
+  fullnm <- paste0(cutecode,".shp")
+  st_write(joinedHuc, fullnm)
 }
 
 

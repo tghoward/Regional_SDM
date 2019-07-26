@@ -40,7 +40,7 @@ max(nmLen) # if this result is greater than 10, you've got a renegade
 # Set working directory to the random points location
 setwd(paste0(loc_model, "/", model_species, "/inputs"))
 
-shpf <- st_read(paste0("presence/", baseName, "_RanPts.shp"),quiet = T)
+shpf <- st_read(paste0("presence/", baseName, "_RanPts.shp"),quiet = TRUE)
 
 # subset input env. vars by model type (terrestrial, shore, etc)
 db <- dbConnect(SQLite(),dbname=nm_db_file)

@@ -87,11 +87,18 @@ df.abs <- df.abs[complete.cases(df.abs),]
 df.in <- cbind(df.in, pres=1)
 df.abs$stratum <- "pseu-a"
 df.abs <- cbind(df.abs, GROUP_ID="pseu-a", 
-					pres=0, RA="high", SPECIES_CD="background")
+					pres=0, RA="high", SPECIES_CD="background", huc10=substr(df.abs$huc12, 0, 10))
+### test temp, drop to huc 8
+# df.in$huc10 <- substr(df.in$huc10, 0, 8)
+# df.abs$huc10 <- substr(df.abs$huc10, 0, 8)
 
 # lower case column names
 names(df.in) <- tolower(names(df.in))
 names(df.abs) <- tolower(names(df.abs))
+
+# subset df.abs to have points only in Huc10s where we have presence points 
+# (in contrast to points over all of estimated range)
+df.abs <- df.abs[df.abs$huc10 %in% unique(df.in$huc10), ]
 
 # get an original list of env-vars for later writing to tblVarsUsed
 envvar_list <- names(df.abs)[names(df.abs) %in% envvar_list] # gets a list of environmental variables
@@ -162,54 +169,155 @@ df.full <- rbind(df.in, df.abs)
 # reset these factors
 df.full$stratum <- factor(df.full$stratum)
 df.full$group_id <- factor(df.full$group_id)
+df.full$huc10 <- factor(df.full$huc10)
 df.full$pres <- factor(df.full$pres)
 df.full$ra <- factor(tolower(as.character(df.full$ra)))
 df.full$species_cd <- factor(df.full$species_cd)
 
 #how many polygons do we have?
-numPys <-  nrow(table(df.in$stratum))
+numPys <-  length(unique(df.in$stratum))
 #how many EOs do we have?
-numEOs <- nrow(table(df.in$group_id))
+numEOs <- length(unique(df.in$group_id))
+#how many hucs?
+numHucs <- length(unique(df.in$huc10))
 
 #initialize the grouping list, and set up grouping variables
 #if we have fewer than 5 EOs, move forward with jackknifing by polygon, otherwise
 #jackknife by EO.
 group <- vector("list")
-group$colNm <- ifelse(numEOs < 5,"stratum","group_id")
-group$JackknType <- ifelse(numEOs < 5,"polygon","spatial grouping")
-if(numEOs < 5) {
-  group$vals <- unique(df.in$stratum)
-} else {
-  group$vals <- unique(df.in$group_id)
-}
+# group$colNm <- ifelse(numEOs < 5,"stratum","group_id")
+# group$JackknType <- ifelse(numEOs < 5,"polygon","spatial grouping")
+# if(numEOs < 5) {
+#   group$vals <- unique(df.in$stratum)
+# } else {
+#   group$vals <- unique(df.in$group_id)
+# }
+
+if(numEOs > 50 & numHucs > 5){ 
+    #group by HUC
+    group$colNm <- "huc10"
+    group$JackknType <- "10-digit watershed"
+    group$vals <- unique(df.in$huc10)
+  } else if (numEOs < 5) {
+    #group by EO
+    group$colNm <- "stratum"
+    group$JackknType <- "polygon"
+    group$vals <- unique(df.in$stratum)
+  } else {
+    # else group by group
+    group$colNm <- "group_id"
+    roup$JackknType <- "spatial grouping"
+    group$vals <- unique(df.in$group_id)
+  } 
 
 # make samp size groupings ----
-EObyRA <- unique(df.full[,c(group$colNm,"ra")])
-EObyRA$sampSize[EObyRA$ra == "very high"] <- 5
-EObyRA$sampSize[EObyRA$ra == "high"] <- 4
-EObyRA$sampSize[EObyRA$ra == "medium"] <- 3
-EObyRA$sampSize[EObyRA$ra == "low"] <- 2
-EObyRA$sampSize[EObyRA$ra == "very low"] <- 1
+#EObyRA <- unique(df.full[,c(group$colNm,"ra")])
+# EObyRA <- unique(df.full[,c("group_id","ra")])
+# EObyRA$sampSize[EObyRA$ra == "very high"] <- 5
+# EObyRA$sampSize[EObyRA$ra == "high"] <- 4
+# EObyRA$sampSize[EObyRA$ra == "medium"] <- 3
+# EObyRA$sampSize[EObyRA$ra == "low"] <- 2
+# EObyRA$sampSize[EObyRA$ra == "very low"] <- 1
 # set the background pts to the sum of the EO samples
 # EObyRA$sampSize[EObyRA$group_id == "pseu-a"] <- sum(EObyRA[!EObyRA$group_id == "pseu-a", "sampSize"])
+
+### test one pt per poly (for HUC10 sampling)
+EObyRA <- unique(df.full[,c("group_id")])
+EObyRA <- data.frame(group_id = EObyRA, sampSize = 2)
 
 # there appear to be cases where more than one 
 # RA is assigned per EO. Handle it here by 
 # taking max value
-EObySS <- aggregate(EObyRA$sampSize, by=list(EObyRA[,group$colNm]), max)
+#EObySS <- aggregate(EObyRA$sampSize, by=list(EObyRA[,group$colNm]), max)
+EObySS <- aggregate(EObyRA$sampSize, by=list(EObyRA[,"group_id"]), max)
 # set the background pts to the sum of the EO samples
-names(EObySS) <- c(group$colNm,"sampSize")
-EObySS$sampSize[EObySS[group$colNm] == "pseu-a"] <- sum(EObySS[!EObySS[group$colNm] == "pseu-a", "sampSize"])
+# names(EObySS) <- c(group$colNm,"sampSize")
+# EObySS$sampSize[EObySS[group$colNm] == "pseu-a"] <- sum(EObySS[!EObySS[group$colNm] == "pseu-a", "sampSize"])
+
+names(EObySS) <- c("group_id","sampSize")
+EObySS$sampSize[EObySS["group_id"] == "pseu-a"] <- sum(EObySS[!EObySS["group_id"] == "pseu-a", "sampSize"])
 
 sampSizeVec <- EObySS$sampSize
-names(sampSizeVec) <- as.character(EObySS[,group$colNm])
+#names(sampSizeVec) <- as.character(EObySS[,group$colNm])
+names(sampSizeVec) <- as.character(EObySS[,"group_id"])
 rm(EObySS, EObyRA)
+
+# reset sample sizes to number of points, when it is smaller than desired sample size
+# This is only relevant when complete.cases may have removed some points from an already-small set of points
+#totPts <- table(df.full[,group$colNm])
+totPts <- table(df.full[,"group_id"])
+for (i in names(sampSizeVec)) if (sampSizeVec[i] > totPts[i]) sampSizeVec[i] <- totPts[i]
+rm(totPts)
+
+#### testing
+
+# df.full <- df.full[order(df.full$group_id),]
+# # this randomly assigns digits to each point by group (stratum) then next row only takes 
+# # members in group that are less than target number of points
+# rndid <- with(df.full, ave(as.numeric(rownames(df.full)), group_id, FUN=function(x) {sample.int(length(x))}))
+# sampsize.df <- cbind(sampSize = as.numeric(sampSizeVec), group_id = names(sampSizeVec))
+# df.full.test <- merge(df.full, sampsize.df)
+# df.full.test2 <- df.full.test[rndid <= as.numeric(df.full.test$sampSize),]
+
+df.in <- df.in[order(df.in$group_id),]
+# this randomly assigns digits to each point by group (stratum) then next row only takes 
+# members in group that are less than target number of points
+sampSizeVec <- sampSizeVec[!names(sampSizeVec)=="pseu-a"]
+rndid <- with(df.in, ave(as.numeric(rownames(df.in)), group_id, FUN=function(x) {sample.int(length(x))}))
+sampsize.df <- data.frame(sampSize = sampSizeVec, group_id = as.numeric(names(sampSizeVec)), stringsAsFactors = FALSE)
+#df.in.s <- merge(df.in, sampsize.df[sampsize.df$group_id != "pseu-a",])
+df.in.s <- merge(df.in, sampsize.df)
+df.in.s <- df.in.s[order(df.in.s$group_id),]
+df.in.s <- df.in.s[rndid <= df.in.s$sampSize,]
+
+nrow(df.in.s)
+
+# df.abs2$huc10 <- "pseu-a"
+# df.abs.s <- df.abs2
+
+absSampVec <- data.frame(table(df.in.s$huc10))
+names(absSampVec) <- c("huc10", "numPolys")
+df.abs2 <- merge(df.abs, absSampVec)
+
+df.abs2$huc10 <- factor(df.abs2$huc10)
+df.abs.s <- df.abs2
+#split df by huc, sample those groups by sample size, then rbind it back together
+## keep full set of bkgd
+# df.abs.s <- do.call(rbind,
+#         lapply(split(df.abs2, df.abs2$huc10),
+#                function(x) x[sample(nrow(x), min(x$numPolys[[1]]*2, nrow(x))), ]))
+
+
+df.full <- rbind(df.in.s[,colList], df.abs.s[,colList])
+# reset these factors
+df.full$stratum <- factor(df.full$stratum)
+df.full$group_id <- factor(df.full$group_id)
+df.full$huc10 <- factor(df.full$huc10)
+df.full$pres <- factor(df.full$pres)
+df.full$ra <- factor(tolower(as.character(df.full$ra)))
+df.full$species_cd <- factor(df.full$species_cd)
+#####
+##
+# make samp size groupings WHEN USING USing HUCs----
+polyByHuc <- unique(df.full[,c(group$colNm,"stratum")])
+polyByHuc <- aggregate(polyByHuc$stratum, list(polyByHuc$huc10), "length")
+names(polyByHuc) <- c(group$colNm,"numPolys")
+
+# set the background pts to the sum of the EO samples
+polyByHuc$numPolys[polyByHuc[group$colNm] == "pseu-a"] <- sum(polyByHuc[!polyByHuc[group$colNm] == "pseu-a", "numPolys"])*4
+
+sampSizeVec <- polyByHuc$numPolys
+names(sampSizeVec) <- as.character(polyByHuc[,group$colNm])
+rm(polyByHuc)
+
+sampSizeVec <- as.integer(sampSizeVec/2)+1
 
 # reset sample sizes to number of points, when it is smaller than desired sample size
 # This is only relevant when complete.cases may have removed some points from an already-small set of points
 totPts <- table(df.full[,group$colNm])
 for (i in names(sampSizeVec)) if (sampSizeVec[i] > totPts[i]) sampSizeVec[i] <- totPts[i]
 rm(totPts)
+
 
 ##
 # tune mtry ----
@@ -224,21 +332,37 @@ if(rowCounts["0"] > (10 * rowCounts["1"])){
 } else {
   df.tune <- df.full
 }
+
+# # try going back to drawing from pseu-a pool... no improvement
+# df.tune$huc10 <- as.character(df.tune$huc10)
+# df.tune$huc10[df.tune$pres == 0] <- "pseu-a"
+# df.tune$huc10 <- factor(df.tune$huc10)
+# sampSizeVec <- c(sampSizeVec, "pseu-a" = sum(sampSizeVec)*2)
+#df.tune$uber_grp <- factor(paste0(df.tune$pres, "_",df.tune$huc10))
+
 # run through mtry twice
 # very small numbers of polys can make a perfect prediction, especially
 # when subsetted like above. If error (prediction error == 0) results from 
 # subsetting, catch error and try tuning with full set
 mtry <- tryCatch(
   {
+    # x <- tuneRF(df.tune[,indVarCols],
+    #             y=df.tune[,depVarCol],
+    #             ntreeTry = 300, stepFactor = 2, mtryStart = 6)
+    
   x <- tuneRF(df.tune[,indVarCols],
              y=df.tune[,depVarCol],
-             ntreeTry = 300, stepFactor = 2, mtryStart = 6,
-            strata = df.full[,group$colNm], sampsize = sampSizeVec, replace = TRUE)
+             ntreeTry = 100, stepFactor = 2, mtryStart = 6,
+            strata = df.tune[,group$colNm], sampsize = sampSizeVec, replace = FALSE)
   newTry <- x[x[,2] == min(x[,2]),1]
+  # y <- tuneRF(df.tune[,indVarCols],
+  #             y=df.tune[,depVarCol],
+  #             ntreeTry = 300, stepFactor = 1.5, mtryStart = max(newTry))
+  
   y <- tuneRF(df.tune[,indVarCols],
               y=df.tune[,depVarCol],
-              ntreeTry = 300, stepFactor = 1.5, mtryStart = max(newTry),
-              strata = df.full[,group$colNm], sampsize = sampSizeVec, replace = TRUE)
+              ntreeTry = 100, stepFactor = 1.5, mtryStart = max(newTry),
+              strata = df.full[,group$colNm], sampsize = sampSizeVec, replace = FALSE)
   
   mtry <- max(y[y[,2] == min(y[,2]),1])
   rm(x,y, df.tune, newTry)
@@ -277,7 +401,18 @@ registerDoParallel(cl)
 
 treeSubs <- ntrees/numCores
 
-rf.find.envars <- foreach(ntree = rep(treeSubs,numCores), .combine = randomForest::combine, 
+# rf.find.envars <- foreach(ntree = rep(treeSubs,numCores), .combine = randomForest::combine, 
+#                           .packages = 'randomForest', .multicombine = TRUE) %dopar% {
+#                             randomForest(df.full[,indVarCols],
+#                                          y=df.full[,depVarCol],
+#                                          importance=TRUE,
+#                                          ntree=ntree,
+#                                          mtry=mtry,
+#                                          norm.votes = TRUE)
+#                           }
+# 
+# 
+rf.find.envars <- foreach(ntree = rep(treeSubs,numCores), .combine = randomForest::combine,
                    .packages = 'randomForest', .multicombine = TRUE) %dopar% {
                      randomForest(df.full[,indVarCols],
                                   y=df.full[,depVarCol],
@@ -285,9 +420,20 @@ rf.find.envars <- foreach(ntree = rep(treeSubs,numCores), .combine = randomFores
                                   ntree=ntree,
                                   mtry=mtry,
                                   strata = df.full[,group$colNm],
-                                  sampsize = sampSizeVec, replace = TRUE,
+                                  sampsize = sampSizeVec, replace = FALSE,
                                   norm.votes = TRUE)
-                   }
+                    }
+
+
+# rf.find.envars <- randomForest(df.full[,indVarCols],
+#                                          y=df.full[,depVarCol],
+#                                          importance=TRUE,
+#                                          ntree=1000,
+#                                          mtry=mtry,
+#                                          strata = df.full[,group$colNm],
+#                                          sampsize = sampSizeVec*2, replace = FALSE,
+#                                          norm.votes = TRUE)
+
 
 impvals <- importance(rf.find.envars, type = 1)
 OriginalNumberOfEnvars <- length(impvals)
@@ -310,11 +456,11 @@ subsetNumberofEnvars <- length(impEnvVars)
 rm(y)
 # which columns are these, then flip the non-envars to TRUE
 impEnvVarCols <- names(df.full) %in% names(impEnvVars)
-impEnvVarCols[1:5] <- TRUE
+impEnvVarCols[1:min(indVarCols)-1] <- TRUE
 # subset!
 df.full <- df.full[,impEnvVarCols]
 # reset the indvarcols object
-indVarCols <- c(6:length(names(df.full)))
+indVarCols <- c(min(indVarCols):length(names(df.full)))
 
 rm(impvals, impEnvVars, impEnvVarCols)
 
@@ -348,10 +494,10 @@ ntrees <- 1000
 
 # reduce the number of validation loops if more than 50. 50 is plenty!
 # randomly draw to get the validation set.
-if(length(group$vals) > 50) {
-  group$vals <- sample(group$vals, size = 50)
+if(length(group$vals) > 15) {
+  group$vals <- sample(group$vals, size = 15)  ## TESTING TEMPORARY
   group$vals <- factor(group$vals)
-} 
+}
 
 ##initialize the Results vectors for output from the jackknife runs
 trRes <- vector("list",length(group$vals))
@@ -396,6 +542,7 @@ treeSubs <- ntrees/numCores
 
 if(length(group$vals)>1){
   for(i in 1:length(group$vals)){
+  #for(i in 1:10){
 		   # Create an object that stores the select command, to be used by subset.
 		  trSelStr <- parse(text=paste(group$colNm[1]," != '", group$vals[[i]],"'",sep=""))
 		  evSelStr <- parse(text=paste(group$colNm[1]," == '", group$vals[[i]],"'",sep=""))
@@ -419,13 +566,25 @@ if(length(group$vals)>1){
 		  
 		  rm(trSelStr, evSelStr, trSetBG, evSetBG, TrBGsamps, BGsampSz )
 
-		  trRes[[i]] <- foreach(ntree = rep(treeSubs,numCores), .combine = randomForest::combine, 
+		  # trRes[[i]] <- foreach(ntree = rep(treeSubs,numCores), .combine = randomForest::combine, 
+		  #                       .packages = 'randomForest', .multicombine = TRUE) %dopar%
+		  #   randomForest(trSet[,indVarCols],y=trSet[,depVarCol],
+		  #                importance=TRUE,mtry=mtry,ntree = ntree
+		  #   )
+		  # 
+		  # trRes[[i]] <- foreach(ntree = rep(treeSubs,numCores), .combine = randomForest::combine,
+		  #                       .packages = 'randomForest', .multicombine = TRUE) %dopar%
+		  #   randomForest(trSet[,indVarCols],y=trSet[,depVarCol],
+		  #                importance=TRUE,mtry=mtry,ntree = ntree
+		  #   )
+		  
+		  		  trRes[[i]] <- foreach(ntree = rep(treeSubs,numCores), .combine = randomForest::combine,
 		                        .packages = 'randomForest', .multicombine = TRUE) %dopar%
           		    		        randomForest(trSet[,indVarCols],y=trSet[,depVarCol],
           		                             importance=TRUE,mtry=mtry,ntree = ntree,
-          		                             strata = trSet[,group$colNm], sampsize = ssVec, replace = TRUE
+          		                             strata = trSet[,group$colNm], sampsize = ssVec, replace = FALSE
 		  )
-
+  		  
 		  # run a randomForest predict on the validation data
 		  evRes[[i]] <- predict(trRes[[i]], evSet[[i]], type="prob")
 		   # use ROCR to structure the data. Get pres col of evRes (= named "1")
@@ -605,7 +764,7 @@ if(length(group$vals)>1){
 }
 
 # increase the number of trees for the full model
-ntrees <- 2000
+ntrees <- 5000
 treeSubs <- ntrees/numCores
 
 ####
@@ -613,7 +772,7 @@ treeSubs <- ntrees/numCores
 ####
 cat("... creating full model \n")
 
-rf.full <- foreach(ntree = rep(treeSubs,numCores), .combine = randomForest::combine, 
+rf.full <- foreach(ntree = rep(treeSubs,numCores), .combine = randomForest::combine,
                     .packages = 'randomForest', .multicombine = TRUE) %dopar% {
                         randomForest(df.full[,indVarCols],
                               y=df.full[,depVarCol],
@@ -621,9 +780,18 @@ rf.full <- foreach(ntree = rep(treeSubs,numCores), .combine = randomForest::comb
                               ntree=ntree,
                               mtry=mtry,
                               strata = df.full[,group$colNm],
-                              sampsize = sampSizeVec, replace = TRUE,
+                              sampsize = sampSizeVec*2, replace = FALSE,
                               norm.votes = TRUE)
                               }
+
+# rf.full <- randomForest(df.full[,indVarCols],
+#                                   y=df.full[,depVarCol],
+#                                   importance=TRUE,
+#                                   ntree=ntrees,
+#                                   mtry=mtry,
+#                                   strata = df.full[,group$colNm],
+#                                   sampsize = sampSizeVec*2, replace = FALSE,
+#                                   norm.votes = TRUE)
 
 ####
 # Importance measures ----
