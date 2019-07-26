@@ -17,7 +17,7 @@ library(doParallel)
 source(paste0(loc_scripts, "/helper/modelrun_meta_data.R"), local = FALSE) # generates modelrun_meta_data
 
 setwd(loc_model)
-dir.create(paste0(model_species,"/outputs/rdata"), recursive = T, showWarnings = F)
+dir.create(paste0(model_species,"/outputs/rdata"), recursive = TRUE, showWarnings = FALSE)
 setwd(paste0("./",model_species,"/inputs"))
 
 # read data from the att db
@@ -144,12 +144,12 @@ rm(dtRas, dtRas.min, dtRas.sub)
 
 # clean up, merge data sets -----
 # this is the full list of fields, arranged appropriately
-colList <- c("species_cd","group_id","pres","stratum", "ra", rasnames)
+colList <- c("species_cd","group_id","huc10", "pres","stratum", "ra", rasnames)
 
-# if colList gets modified, 
-# also modify the locations for the independent and dependent variables, here
-depVarCol <- 3
-indVarCols <- c(6:length(colList))
+# assign and calculate where the dependent and independent vars are
+depVarCol <- "pres"
+indVarStart <- length(colList) - length(rasnames) + 1
+indVarCols <- c(indVarStart:length(colList))
 
 #re-arrange
 df.in <- df.in[,colList]
