@@ -171,6 +171,15 @@ numPys <-  nrow(table(df.in$stratum))
 #how many EOs do we have?
 numEOs <- nrow(table(df.in$group_id))
 
+# how many HUCs?
+# reset HUC10s to include leading 0 
+df.in$group_id <- formatC(df.in$group_id, width = 10, format = "d", flag = "0")
+df.full$group_id <- formatC(df.full$group_id, width = 10, format = "d", flag = "0")
+numHuc10 <- length(unique(df.in$group_id))
+numHuc8 <- length(unique(substr(df.in$group_id,1,8)))
+numHuc6 <- length(unique(substr(df.in$group_id,1,6)))
+
+
 #initialize the grouping list, and set up grouping variables
 #if we have fewer than 5 EOs, move forward with jackknifing by polygon, otherwise
 #jackknife by EO.
@@ -183,8 +192,33 @@ if(numEOs < 5) {
   group$vals <- unique(df.in$group_id)
 }
 
+#initialize the grouping list, and set up grouping variables
+group <- vector("list")
+if(numHuc10 < 5){
+  group$colNm <- "stratum"
+  group$JackknType <- "polygon"
+  group$vals <- unique(df.in$group_id)
+} else if(numHuc10 < 100) {
+  group$colNm <- "group_id"
+  group$JackknType <- "HUC 10 groups"
+  group$vals <- unique(df.in$group_id)
+} else if(numHuc8 < 100) {
+  df.in$group_id <- substr(df.in$group_id,1,8)
+  df.full$group_id <- substr(df.full$group_id,1,8)
+  group$colNm <- "group_id"
+  group$JackknType <- "HUC 8 groups"
+  group$vals <- unique(df.in$group_id)
+} else  {
+  df.in$group_id <- substr(df.in$group_id,1,6)
+  df.full$group_id <- substr(df.full$group_id,1,6)
+  group$colNm <- "group_id"
+  group$JackknType <- "HUC 6 groups"
+  group$vals <- unique(df.in$group_id)
+}
+
 # make samp size groupings ----
-EObyRA <- unique(df.full[,c(group$colNm,"ra")])
+#EObyRA <- unique(df.full[,c(group$colNm,"ra")])
+EObyRA <- unique(df.in[,c(group$colNm,"ra")])
 EObyRA$sampSize[EObyRA$ra == "very high"] <- 5
 EObyRA$sampSize[EObyRA$ra == "high"] <- 4
 EObyRA$sampSize[EObyRA$ra == "medium"] <- 3
@@ -203,6 +237,7 @@ EObySS$sampSize[EObySS[group$colNm] == "pseu-a"] <- sum(EObySS[!EObySS[group$col
 
 sampSizeVec <- EObySS$sampSize
 names(sampSizeVec) <- as.character(EObySS[,group$colNm])
+sampSizeVec <- c(sampSizeVec, "pseu-a" = sum(sampSizeVec))
 rm(EObySS, EObyRA)
 
 # reset sample sizes to number of points, when it is smaller than desired sample size
