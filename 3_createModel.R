@@ -142,6 +142,8 @@ rasnames <- rasnames[!rasnames %in% names(dtRas.sub)]
 
 rm(dtRas, dtRas.min, dtRas.sub)
 
+
+
 # clean up, merge data sets -----
 # this is the full list of fields, arranged appropriately
 colList <- c("species_cd","group_id","pres","stratum", "ra", rasnames)
@@ -157,14 +159,27 @@ df.abs <- df.abs[,colList]
 
 # row bind the pseudo-absences with the presence points
 df.abs$group_id <- factor(df.abs$group_id)
-df.full <- rbind(df.in, df.abs)
+# df.full <- rbind(df.in, df.abs)
+# 
+# # reset these factors
+# df.full$stratum <- factor(df.full$stratum)
+# df.full$group_id <- factor(df.full$group_id)
+# df.full$pres <- factor(df.full$pres)
+# df.full$ra <- factor(tolower(as.character(df.full$ra)))
+# df.full$species_cd <- factor(df.full$species_cd)
 
-# reset these factors
-df.full$stratum <- factor(df.full$stratum)
-df.full$group_id <- factor(df.full$group_id)
-df.full$pres <- factor(df.full$pres)
-df.full$ra <- factor(tolower(as.character(df.full$ra)))
-df.full$species_cd <- factor(df.full$species_cd)
+####### remove correlated vars ####  new test method
+library(caret)
+df.abs.cor <- cor(df.abs[,indVarCols])
+highlyCor <- findCorrelation(df.abs.cor, cutoff = 0.75)
+highlyCorAligned <- highlyCor + min(indVarCols) - 1
+colList <- colList[-highlyCorAligned]
+
+df.abs <- df.abs[,colList]
+df.in <- df.in[,colList]
+indVarCols <- c(6:length(colList))
+
+
 
 #how many polygons do we have?
 numPys <-  nrow(table(df.in$stratum))
@@ -174,7 +189,7 @@ numEOs <- nrow(table(df.in$group_id))
 # how many HUCs?
 # reset HUC10s to include leading 0 
 df.in$group_id <- formatC(df.in$group_id, width = 10, format = "d", flag = "0")
-df.full$group_id <- formatC(df.full$group_id, width = 10, format = "d", flag = "0")
+#df.full$group_id <- formatC(df.full$group_id, width = 10, format = "d", flag = "0")
 numHuc10 <- length(unique(df.in$group_id))
 numHuc8 <- length(unique(substr(df.in$group_id,1,8)))
 numHuc6 <- length(unique(substr(df.in$group_id,1,6)))
@@ -204,21 +219,57 @@ if(numHuc10 < 5){
   group$vals <- unique(df.in$group_id)
 } else if(numHuc8 < 100) {
   df.in$group_id <- substr(df.in$group_id,1,8)
-  df.full$group_id <- substr(df.full$group_id,1,8)
+  #df.full$group_id <- substr(df.full$group_id,1,8)
   group$colNm <- "group_id"
   group$JackknType <- "HUC 8 groups"
   group$vals <- unique(df.in$group_id)
 } else  {
   df.in$group_id <- substr(df.in$group_id,1,6)
-  df.full$group_id <- substr(df.full$group_id,1,6)
+  #df.full$group_id <- substr(df.full$group_id,1,6)
   group$colNm <- "group_id"
   group$JackknType <- "HUC 6 groups"
   group$vals <- unique(df.in$group_id)
 }
 
+#
+#
+#
+###### testing
+library(dplyr)
+
+# remove all obs with RA = low
+nrow(df.in)
+df.in <- df.in[!df.in$ra == "low",]
+nrow(df.in)
+
+df.in.9 <- df.in %>% group_by(stratum) %>% sample_n(1)
+df.in <- as.data.frame(df.in.9)
+
+# reduce the number of bkg points if huge
+# use the greater of 20 * pres points or 50,000
+bkgTarg <- max(nrow(df.in.9) * 20, 50000)
+if(nrow(df.abs) > bkgTarg){
+  df.abs <- df.abs[sample(nrow(df.abs), bkgTarg),]
+}
+
+
+# row bind the pseudo-absences with the presence points
+df.abs$group_id <- factor(df.abs$group_id)
+df.full <- rbind(df.in, df.abs)
+
+# reset these factors
+df.full$stratum <- factor(df.full$stratum)
+df.full$group_id <- factor(df.full$group_id)
+df.full$pres <- factor(df.full$pres)
+df.full$ra <- factor(tolower(as.character(df.full$ra)))
+df.full$species_cd <- factor(df.full$species_cd)
+
+
+
 # make samp size groupings ----
 #EObyRA <- unique(df.full[,c(group$colNm,"ra")])
 EObyRA <- unique(df.in[,c(group$colNm,"ra")])
+EObyRA$sampSize <- NA
 EObyRA$sampSize[EObyRA$ra == "very high"] <- 5
 EObyRA$sampSize[EObyRA$ra == "high"] <- 4
 EObyRA$sampSize[EObyRA$ra == "medium"] <- 3
@@ -242,9 +293,11 @@ rm(EObySS, EObyRA)
 
 # reset sample sizes to number of points, when it is smaller than desired sample size
 # This is only relevant when complete.cases may have removed some points from an already-small set of points
-totPts <- table(df.full[,group$colNm])
+totPts <- c(table(df.in[,group$colNm]), "pseu-a" = sum(sampSizeVec))
 for (i in names(sampSizeVec)) if (sampSizeVec[i] > totPts[i]) sampSizeVec[i] <- totPts[i]
 rm(totPts)
+
+
 
 ##
 # tune mtry ----
@@ -294,7 +347,7 @@ mtry <- tryCatch(
     
     mtry <- max(y[y[,2] == min(y[,2]),1])
     rm(x,y, df.tune, newTry)
-    mtry
+    print(paste("mtry = " , mtry))
   }
 )
 rm(rowCounts)
@@ -304,7 +357,8 @@ rm(rowCounts)
 ##
 
 ntrees <- 1000
-numCores <- 10        
+#numCores <- 10
+numCores <- 2
 
 # do all randomForest calls in parallel, starting with this one
 cl <- makeCluster(numCores)   
@@ -324,6 +378,16 @@ rf.find.envars <- foreach(ntree = rep(treeSubs,numCores), .combine = randomFores
                                   norm.votes = TRUE)
                    }
 
+
+# rf.find.envars <- randomForest(df.full[,indVarCols],
+#              y=df.full[,depVarCol],
+#              importance=TRUE,
+#              ntree=ntrees,
+#              mtry=mtry,
+#              strata = df.full[,group$colNm],
+#              sampsize = sampSizeVec, replace = TRUE,
+#              norm.votes = TRUE)
+
 impvals <- importance(rf.find.envars, type = 1)
 OriginalNumberOfEnvars <- length(impvals)
 
@@ -338,7 +402,8 @@ for(grp in unique(corrdEVs$correlatedVarGroupings)){
 rm(vars, imp.sub, varsToDrop)
 
 # set the percentile, here choosing above 25% percentile
-envarPctile <- 0.25
+#envarPctile <- 0.25
+envarPctile <- 0.750
 y <- quantile(impvals, probs = envarPctile)
 impEnvVars <- impvals[impvals > y,]
 subsetNumberofEnvars <- length(impEnvVars)
@@ -383,10 +448,10 @@ ntrees <- 1000
 
 # reduce the number of validation loops if more than 50. 50 is plenty!
 # randomly draw to get the validation set.
-if(length(group$vals) > 50) {
-  group$vals <- sample(group$vals, size = 50)
-  group$vals <- factor(group$vals)
-} 
+# if(length(group$vals) > 50) {
+#   group$vals <- sample(group$vals, size = 50)
+#   group$vals <- factor(group$vals)
+# } 
 
 ##initialize the Results vectors for output from the jackknife runs
 trRes <- vector("list",length(group$vals))
