@@ -158,8 +158,12 @@ rm(list=ls())
 
 # for scripts 1-3, run just the following 3 lines
 
+<<<<<<< HEAD
 #model_species <- "rallobso"
 model_species <- "urocwash"
+=======
+model_species <- "arctdens"
+>>>>>>> parent of 1cbb9cc... script 0 edit
 
 load(here("_data","species",model_species,"runSDM_paths.Rdata"))
 for(i in 1:length(fn_args)) assign(names(fn_args)[i], fn_args[[i]])
